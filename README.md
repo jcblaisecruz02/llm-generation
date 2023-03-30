@@ -20,7 +20,7 @@ python generate.py \
     --use_instruction 
 ```
 
-### Seq2Seq Generation
+## Seq2Seq Generation
 The `generate.py` script works for any LLM. Here's an example for `MT0-xl`:
 
 ```
