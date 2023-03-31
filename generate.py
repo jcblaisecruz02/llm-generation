@@ -27,7 +27,7 @@ except:
 def main(
     load_8bit: bool = False,
     base_model: str = "decapoda-research/llama-7b-hf",
-    lora_weights: str = "tloen/alpaca-lora-7b",
+    lora_weights: str = "",
     model_type: str = "causal",
     use_instruction: bool = True
 ):
@@ -47,19 +47,40 @@ def main(
     tokenizer = TokenizerClass.from_pretrained(base_model)
     
     if device == "cuda":
-        model = ModelClass.from_pretrained(
-            base_model,
-            load_in_8bit=load_8bit,
-            torch_dtype=torch.float16,
-            device_map="auto",
-        )
+        # Adjust max_memory depending on number of GPUs if loading 8 bit
+        if load_8bit:
+            model = ModelClass.from_pretrained(
+                base_model,
+                load_in_8bit=load_8bit,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                max_memory={i: "14GiB" if i == 0 else "20GiB" for i in range(torch.cuda.device_count())}
+            )
+        else:
+            model = ModelClass.from_pretrained(
+                base_model,
+                load_in_8bit=load_8bit,
+                torch_dtype=torch.float16,
+                device_map="auto",
+            )
+        
         model_type = type(model)
         if lora_weights != '':
-            model = PeftModel.from_pretrained(
-                model,
-                lora_weights,
-                torch_dtype=torch.float16,
-            )
+            # Map the adapters to GPU as needed if loading 8 bit
+            if load_8bit:
+                device_map = {f"base_model.model.{k}": v for k, v in model.hf_device_map.items()}
+                model = PeftModel.from_pretrained(
+                    model,
+                    lora_weights,
+                    torch_dtype=torch.float16,
+                    device_map=device_map
+                )
+            else:
+                model = PeftModel.from_pretrained(
+                    model,
+                    lora_weights,
+                    torch_dtype=torch.float16,
+                )
     
     elif device == "mps":
         model = ModelClass.from_pretrained(
@@ -134,14 +155,24 @@ def main(
         output = post_process(output, prompt=prompt)
         
         return output
-
+    
+    desc = [
+        "**Model:** {}".format(base_model.split('/')[-1])
+    ]
+    
+    if lora_weights != '': desc.append("**Adapter**: {}".format(lora_weights.split('/')[-1]))
+    if use_instruction: desc.append("**Instruct Model?**: Yes") 
+    else: desc.append("**Instruct Model?**: No")
+    if load_8bit: desc.append("**Inference Mode**: 8-bit Int")
+    else: desc.append("**Inference Mode**: 16-bit Float")
+    
     gr.Interface(
         fn=evaluate,
         inputs=[
             gr.components.Textbox(
-                lines=2, label="Instruction", placeholder="Prompt for all models go here."
+                lines=2, label="Input", placeholder="Prompt for all models go here."
             ),
-            gr.components.Textbox(lines=2, label="Input", placeholder="Input for Instruction Models go here."),
+            gr.components.Textbox(lines=2, label="Context", placeholder="Input for Instruction Models go here."),
             gr.components.Slider(minimum=0, maximum=1, value=0.7, label="Temperature"),
             gr.components.Slider(minimum=0, maximum=1, value=0.93, label="Top p"),
             gr.components.Slider(
@@ -159,7 +190,7 @@ def main(
             )
         ],
         title="LLM Generation",
-        description="**Current Running Model**: {}".format(base_model),
+        description='\n'.join(desc),
     ).launch()
 
 def generate_prompt(instruction, input=None, use_instruction=False):
