@@ -29,7 +29,7 @@ def main(
     base_model: str = "decapoda-research/llama-7b-hf",
     lora_weights: str = "",
     model_type: str = "causal",
-    use_instruction: bool = True
+    use_instruction: bool = False
 ):
     assert base_model, (
         "Please specify a --base_model, e.g. --base_model='decapoda-research/llama-7b-hf'"
